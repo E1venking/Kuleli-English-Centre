@@ -1,0 +1,7 @@
+{
+  "name": "Kuleli English Centre",
+  "description": "An intelligent English speaking practice application offering structured exams and free conversation with detailed AI feedback.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
