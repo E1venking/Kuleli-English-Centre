@@ -220,17 +220,24 @@ export const generateWritingTopic = async (): Promise<string> => {
 };
 
 export const generateExamImage = async (topic: string): Promise<string | null> => {
-  return fetchWithRetry(async () => {
+  // Attempt 1: Gemini API
+  try {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image', // No fallback for image generation available in free tier mostly
+      model: 'gemini-2.5-flash-image', 
       contents: { parts: [{ text: `High quality professional photograph of: ${topic}` }] },
     });
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
     }
-    return null;
-  }).catch(() => null);
+  } catch (e) {
+    console.warn("Gemini Image Gen failed (likely free tier limitation). Switching to fallback provider.");
+  }
+
+  // Attempt 2: Pollinations.ai Fallback (Robust for free tier and specific network conditions)
+  const encodedTopic = encodeURIComponent(`cinematic photography of ${topic}, educational context, highly detailed, 4k`);
+  const randomSeed = Math.floor(Math.random() * 1000);
+  return `https://image.pollinations.ai/prompt/${encodedTopic}?width=800&height=600&nologo=true&seed=${randomSeed}`;
 };
 
 const generateFreeSpeakingReply = async (audioBase64: string, history: any[]): Promise<string> => {
