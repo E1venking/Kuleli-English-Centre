@@ -6,6 +6,7 @@ import WritingMode from './components/WritingMode';
 import LandingPage from './components/LandingPage';
 import ApiKeyEntry from './components/ApiKeyEntry';
 import { AppMode, ExamPart } from './types';
+import { setApiKey } from './services/geminiService';
 
 const App: React.FC = () => {
   const [currentMode, setCurrentMode] = useState<AppMode>(AppMode.LANDING);
@@ -14,36 +15,17 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // We intentionally skip checking hasSelectedApiKey() on mount.
-    // This forces the "Sign in" screen to appear for every new session,
-    // ensuring the user explicitly connects their account as requested.
+    // This forces the "Sign in" screen to appear for every new session.
     setIsChecking(false);
   }, []);
 
-  const handleConnect = async () => {
-    const aiStudio = (window as any).aistudio;
-    if (aiStudio) {
-      try {
-        // Triggers the secure Google system dialog for account selection/login.
-        await aiStudio.openSelectKey();
-        // As per documentation, we assume success if no error is thrown.
-        setHasApiKey(true);
-      } catch (e) {
-        console.error("Key selection failed", e);
-        const msg = String(e);
-        // Handle user cancellation specifically
-        if (msg.includes("Requested entity was not found")) {
-            setHasApiKey(false);
-            alert("Sign in was cancelled. Please try again to access the application.");
-        }
-      }
+  const handleConnect = (key?: string) => {
+    if (key) {
+      setApiKey(key);
+      setHasApiKey(true);
     } else {
-      // Fallback for local development where window.aistudio might not exist.
-      // Checks if a key was manually provided in .env
-      if (process.env.API_KEY) {
-        setHasApiKey(true);
-      } else {
-        alert("Google AI Studio environment not detected. Unable to sign in.");
-      }
+      // If no key passed, it means we rely on process.env.API_KEY or system auth
+      setHasApiKey(true);
     }
   };
 

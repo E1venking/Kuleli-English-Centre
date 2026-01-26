@@ -5,6 +5,19 @@ import { FeedbackData, WritingFeedback, ExamPart } from "../types";
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 let isAudioUnlocked = false;
 
+// Dynamic API Key Management
+let dynamicApiKey: string | undefined = process.env.API_KEY;
+
+export const setApiKey = (key: string) => {
+  dynamicApiKey = key;
+};
+
+const getApiKey = (): string => {
+  // Use the dynamic key if set, otherwise fallback to the environment variable.
+  // If neither exists, the GoogleGenAI client will likely throw an error, which we catch.
+  return dynamicApiKey || process.env.API_KEY || "";
+};
+
 // Constants for Model Fallback
 const PRIMARY_MODEL = "gemini-3-flash-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
@@ -117,7 +130,7 @@ const addWavHeader = (pcmData: Uint8Array, sampleRate: number = 24000, numChanne
 export const synthesizeSpeech = async (text: string): Promise<string | 'FALLBACK_HANDLED' | null> => {
   try {
     return await fetchWithRetry(async () => {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: getApiKey() });
       const cleanText = text.replace(/\*/g, '');
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
@@ -142,7 +155,7 @@ export const synthesizeSpeech = async (text: string): Promise<string | 'FALLBACK
 
 export const generateExamTopic = async (part: number): Promise<string> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     // Updated Part 2 Prompt for Single Image Description
     const prompt = part === 2 
         ? "Generate a detailed scene description for a photograph used in an English speaking exam (A2-B1 level). Examples: 'A student studying in a library with headphones', 'A group of friends camping in the woods', 'A chef cooking in a modern kitchen', 'People playing golf on a sunny day', 'A waiter serving customers in a busy restaurant'. Return ONLY the description text." 
@@ -170,7 +183,7 @@ export const generateExamTopic = async (part: number): Promise<string> => {
 
 export const generateWritingTopic = async (): Promise<string> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const prompt = `Generate a CEFR A2-B1 level English writing exam topic. 
     Examples: 'Write about a memorable day', 'Write about an important person'. 
     Format MUST include a title and 4-5 bullet points of what to include. 
@@ -198,7 +211,7 @@ export const generateWritingTopic = async (): Promise<string> => {
 
 export const generateExamImage = async (topic: string): Promise<string | null> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image', // No fallback for image generation available in free tier mostly
       contents: { parts: [{ text: `High quality professional photograph of: ${topic}` }] },
@@ -211,7 +224,7 @@ export const generateExamImage = async (topic: string): Promise<string | null> =
 };
 
 const generateFreeSpeakingReply = async (audioBase64: string, history: any[]): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const config = {
       systemInstruction: "You are a friendly English tutor. Reply naturally to the student's input. Keep your response brief (max 3 sentences) and encouraging. Do NOT use stars or markdown.",
       responseMimeType: "text/plain"
@@ -249,7 +262,7 @@ export const processStudentInput = async (
   onReply?: (text: string) => void
 ): Promise<{ reply: string, feedback: FeedbackData, moveNext?: boolean }> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const audioBase64 = await blobToBase64(audioBlob);
     
     // FREE MODE OPTIMIZATION: PARALLEL REQUESTS
@@ -448,7 +461,7 @@ export const processStudentInput = async (
 
 export const processWritingInput = async (text: string, topic?: string): Promise<WritingFeedback> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const systemInstruction = `You are an English writing evaluator for A2-B1 levels. 
     Analyze the text based on these EXACT criteria:
     
