@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ExamPart, ExamStatus, FeedbackData, Mistake, AppMode } from '../types';
+import { ExamPart, ExamStatus, FeedbackData, Mistake, AppMode, UserProfile } from '../types';
 import { processStudentInput, synthesizeSpeech, generateExamImage, generateExamTopic, unlockAudio } from '../services/geminiService';
+import { submitExamResult } from '../services/submissionService';
 import Timer from './Timer';
 import AudioVisualizer from './AudioVisualizer';
 import AiSpeakingVisualizer from './AiSpeakingVisualizer';
 import { useAudioLevel } from '../hooks/useAudioLevel';
-import { Mic, Play, ArrowRight, CheckCircle, AlertCircle, Volume2, Clock, GraduationCap, FastForward, TrendingUp, AlertTriangle, RefreshCw, Trophy, ClipboardCheck, ArrowUpRight, MessageSquare, XCircle, Info, Volume1, Flag, SkipForward } from 'lucide-react';
+import { Mic, Play, ArrowRight, CheckCircle, AlertCircle, Volume2, Clock, GraduationCap, FastForward, TrendingUp, AlertTriangle, RefreshCw, Trophy, ClipboardCheck, ArrowUpRight, MessageSquare, XCircle, Info, Volume1, Flag, SkipForward, Send, Download } from 'lucide-react';
 
 interface ExamModeProps {
   initialPart?: ExamPart;
   isStandalone?: boolean;
   onModeChange?: (mode: AppMode) => void;
+  user: UserProfile;
 }
 
-const ExamMode: React.FC<ExamModeProps> = ({ initialPart = ExamPart.INTRO, isStandalone = false, onModeChange }) => {
+const ExamMode: React.FC<ExamModeProps> = ({ initialPart = ExamPart.INTRO, isStandalone = false, onModeChange, user }) => {
   const [hasStarted, setHasStarted] = useState(false);
   const [part, setPart] = useState<ExamPart>(initialPart);
   const [status, setStatus] = useState<ExamStatus>(ExamStatus.IDLE);
@@ -23,6 +25,10 @@ const ExamMode: React.FC<ExamModeProps> = ({ initialPart = ExamPart.INTRO, isSta
   const [resultsHistory, setResultsHistory] = useState<Record<number, FeedbackData>>({});
   const [quotaError, setQuotaError] = useState(false);
   
+  // Submission State
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+
   const [timeLeft, setTimeLeft] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   
@@ -58,6 +64,7 @@ const ExamMode: React.FC<ExamModeProps> = ({ initialPart = ExamPart.INTRO, isSta
     setExamImages([]);
     isNewPartRef.current = true;
     turnCountRef.current = 0;
+    setIsSubmitted(false);
   }, [initialPart, isStandalone]);
 
   useEffect(() => {
@@ -351,6 +358,57 @@ const ExamMode: React.FC<ExamModeProps> = ({ initialPart = ExamPart.INTRO, isSta
     }, 0);
   };
 
+  const handleSubmitScoreToTeacher = async () => {
+    setIsSubmitting(true);
+    const totalScore = calculateTotalScore();
+    const breakdown = {
+      p1: resultsHistory[1] ? (resultsHistory[1].taskAchievementScore + resultsHistory[1].pronunciationScore + resultsHistory[1].grammarScore + resultsHistory[1].fluencyCoherenceScore + (resultsHistory[1].vocabularyScore || 0)) : 0,
+      p2: resultsHistory[2] ? (resultsHistory[2].taskAchievementScore + resultsHistory[2].pronunciationScore + resultsHistory[2].grammarScore + resultsHistory[2].fluencyCoherenceScore + (resultsHistory[2].vocabularyScore || 0)) : 0,
+      p3: resultsHistory[3] ? (resultsHistory[3].taskAchievementScore + resultsHistory[3].pronunciationScore + resultsHistory[3].grammarScore + resultsHistory[3].fluencyCoherenceScore + (resultsHistory[3].vocabularyScore || 0)) : 0,
+    };
+
+    const success = await submitExamResult({
+      user,
+      type: 'SPEAKING_EXAM',
+      score: totalScore,
+      maxScore: 100,
+      breakdown: JSON.stringify(breakdown),
+      feedbackSummary: "Completed all parts."
+    });
+
+    setIsSubmitting(false);
+    if (success) setIsSubmitted(true);
+    else alert("Could not submit score. Please check your internet connection.");
+  };
+
+  const handleDownloadReport = () => {
+    const totalScore = calculateTotalScore();
+    const date = new Date().toLocaleString();
+    const content = `
+KULELI ENGLISH CENTRE - SPEAKING EXAM REPORT
+--------------------------------------------
+Date: ${date}
+Cadet: ${user.name}
+
+TOTAL SCORE: ${totalScore.toFixed(1)} / 100
+
+PART 1 SCORE: ${resultsHistory[1] ? (resultsHistory[1].taskAchievementScore + resultsHistory[1].pronunciationScore + resultsHistory[1].grammarScore + resultsHistory[1].fluencyCoherenceScore + (resultsHistory[1].vocabularyScore || 0)).toFixed(1) : 0}
+PART 2 SCORE: ${resultsHistory[2] ? (resultsHistory[2].taskAchievementScore + resultsHistory[2].pronunciationScore + resultsHistory[2].grammarScore + resultsHistory[2].fluencyCoherenceScore + (resultsHistory[2].vocabularyScore || 0)).toFixed(1) : 0}
+PART 3 SCORE: ${resultsHistory[3] ? (resultsHistory[3].taskAchievementScore + resultsHistory[3].pronunciationScore + resultsHistory[3].grammarScore + resultsHistory[3].fluencyCoherenceScore + (resultsHistory[3].vocabularyScore || 0)).toFixed(1) : 0}
+
+FEEDBACK SUMMARY:
+${(Object.values(resultsHistory) as FeedbackData[]).map((f, i) => `Part ${i+1}: ${f.feedbackText}`).join('\n\n')}
+    `.trim();
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Speaking_Exam_${user.name.replace(/\s+/g, '_')}_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const getDynamicGlow = (level: number) => {
     const intensity = Math.max(0.1, level);
     return {
@@ -436,7 +494,7 @@ const ExamMode: React.FC<ExamModeProps> = ({ initialPart = ExamPart.INTRO, isSta
     return (
       <div className="max-w-4xl mx-auto p-6 space-y-8 animate-in fade-in duration-700">
         <div className="bg-white rounded-[40px] shadow-2xl border border-slate-100 overflow-hidden">
-          <div className="bg-red-700 p-12 text-white text-center space-y-4">
+          <div className="bg-red-700 p-12 text-white text-center space-y-4 relative">
             <Trophy size={64} className="mx-auto mb-4 text-orange-400" />
             <h2 className="text-3xl font-black uppercase tracking-widest">Exam Results</h2>
             <div className="flex items-center justify-center gap-2">
@@ -444,6 +502,32 @@ const ExamMode: React.FC<ExamModeProps> = ({ initialPart = ExamPart.INTRO, isSta
                <span className="text-2xl font-bold opacity-60">/ 100</span>
             </div>
             <p className="text-lg font-medium opacity-80">Final Grade - Kuleli English Centre</p>
+            
+            <div className="absolute top-8 right-8 flex gap-2">
+                 <button 
+                  onClick={handleDownloadReport}
+                  className="bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg transition-all flex items-center gap-2"
+                  title="Download Record"
+                 >
+                   <Download size={14} />
+                 </button>
+                
+                {/* Submit Button */}
+                {!isSubmitted ? (
+                  <button 
+                    onClick={handleSubmitScoreToTeacher}
+                    disabled={isSubmitting}
+                    className="bg-white text-red-700 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-red-50 transition-all flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isSubmitting ? <RefreshCw className="animate-spin" size={14}/> : <Send size={14} />}
+                    {isSubmitting ? "Sending..." : "Submit"}
+                  </button>
+                ) : (
+                   <div className="bg-green-500 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg flex items-center gap-2">
+                      <CheckCircle size={14} /> Submitted
+                   </div>
+                )}
+            </div>
           </div>
 
           <div className="p-8 md:p-12 space-y-12">

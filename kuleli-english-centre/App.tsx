@@ -5,28 +5,21 @@ import FreeSpeakingMode from './components/FreeSpeakingMode';
 import WritingMode from './components/WritingMode';
 import LandingPage from './components/LandingPage';
 import ApiKeyEntry from './components/ApiKeyEntry';
-import { AppMode, ExamPart } from './types';
-import { setApiKey } from './services/geminiService';
+import { AppMode, ExamPart, UserProfile } from './types';
 
 const App: React.FC = () => {
   const [currentMode, setCurrentMode] = useState<AppMode>(AppMode.LANDING);
-  const [hasApiKey, setHasApiKey] = useState(false);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    // We intentionally skip checking hasSelectedApiKey() on mount.
-    // This forces the "Sign in" screen to appear for every new session.
+    // We start by checking if user needs to login. 
+    // Even if API KEY is in env, we want the user to "Sign In" for identity.
     setIsChecking(false);
   }, []);
 
-  const handleConnect = (key?: string) => {
-    if (key) {
-      setApiKey(key);
-      setHasApiKey(true);
-    } else {
-      // If no key passed, it means we rely on process.env.API_KEY or system auth
-      setHasApiKey(true);
-    }
+  const handleConnect = (userProfile: UserProfile) => {
+    setUser(userProfile);
   };
 
   if (isChecking) {
@@ -37,22 +30,22 @@ const App: React.FC = () => {
     );
   }
 
-  if (!hasApiKey) {
+  if (!user) {
     return <ApiKeyEntry onConnect={handleConnect} />;
   }
 
   return (
-    <Layout currentMode={currentMode} onModeChange={setCurrentMode}>
+    <Layout currentMode={currentMode} onModeChange={setCurrentMode} user={user}>
       {currentMode === AppMode.LANDING && (
         <LandingPage onStart={() => setCurrentMode(AppMode.EXAM)} />
       )}
-      {currentMode === AppMode.EXAM && <ExamMode key="exam-all" onModeChange={setCurrentMode} />}
-      {currentMode === AppMode.EXAM_P1 && <ExamMode key="exam-p1" initialPart={ExamPart.INTRO} isStandalone={true} onModeChange={setCurrentMode} />}
-      {currentMode === AppMode.EXAM_P2 && <ExamMode key="exam-p2" initialPart={ExamPart.PICTURE} isStandalone={true} onModeChange={setCurrentMode} />}
-      {currentMode === AppMode.EXAM_P3 && <ExamMode key="exam-p3" initialPart={ExamPart.DISCUSSION} isStandalone={true} onModeChange={setCurrentMode} />}
+      {currentMode === AppMode.EXAM && <ExamMode key="exam-all" onModeChange={setCurrentMode} user={user} />}
+      {currentMode === AppMode.EXAM_P1 && <ExamMode key="exam-p1" initialPart={ExamPart.INTRO} isStandalone={true} onModeChange={setCurrentMode} user={user} />}
+      {currentMode === AppMode.EXAM_P2 && <ExamMode key="exam-p2" initialPart={ExamPart.PICTURE} isStandalone={true} onModeChange={setCurrentMode} user={user} />}
+      {currentMode === AppMode.EXAM_P3 && <ExamMode key="exam-p3" initialPart={ExamPart.DISCUSSION} isStandalone={true} onModeChange={setCurrentMode} user={user} />}
       {currentMode === AppMode.FREE_SPEAKING && <FreeSpeakingMode />}
       {(currentMode === AppMode.WRITING_EXAM || currentMode === AppMode.FREE_WRITING) && (
-        <WritingMode mode={currentMode} />
+        <WritingMode mode={currentMode} user={user} />
       )}
     </Layout>
   );

@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { AppMode } from '../types';
-import { MessageCircle, GraduationCap, Menu, X, Shield, Languages, PenTool, FileText, ChevronDown, ChevronUp, Layers, Target, Home } from 'lucide-react';
+import { AppMode, UserProfile } from '../types';
+import { MessageCircle, GraduationCap, Menu, X, Shield, Languages, PenTool, FileText, ChevronDown, ChevronUp, Layers, Target, Home, LogOut } from 'lucide-react';
 
 interface LayoutProps {
   currentMode: AppMode;
   onModeChange: (mode: AppMode) => void;
   children: React.ReactNode;
+  user: UserProfile;
 }
 
-const Layout: React.FC<LayoutProps> = ({ currentMode, onModeChange, children }) => {
+const Layout: React.FC<LayoutProps> = ({ currentMode, onModeChange, children, user }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSpeakingExamExpanded, setIsSpeakingExamExpanded] = useState(
     [AppMode.EXAM, AppMode.EXAM_P1, AppMode.EXAM_P2, AppMode.EXAM_P3].includes(currentMode)
@@ -73,8 +74,17 @@ const Layout: React.FC<LayoutProps> = ({ currentMode, onModeChange, children }) 
           <div className="h-[2px] w-32 md:w-96 bg-gradient-to-r from-transparent via-red-300 to-transparent mt-2 md:mt-3"></div>
         </div>
 
-        {/* Right Section: YDYO Logo */}
-        <div className="flex items-center shrink-0 z-10 hidden sm:flex">
+        {/* Right Section: User Profile + YDYO Logo */}
+        <div className="flex items-center gap-4 shrink-0 z-10 hidden sm:flex">
+           {/* User Profile Badge */}
+           <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 pl-4 pr-2 py-1.5 rounded-full">
+              <div className="flex flex-col items-end">
+                <span className="text-xs font-bold text-slate-800">{user.name}</span>
+                <span className="text-[10px] text-slate-500 font-medium">Cadet / Student</span>
+              </div>
+              <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full border border-white shadow-sm" />
+           </div>
+
            <div className="h-16 w-16 md:h-20 md:w-20 flex items-center justify-center rounded-2xl bg-white shadow-sm border border-slate-100 p-2 overflow-hidden transition-transform hover:scale-105">
              <img 
                src="https://storage.googleapis.com/kulelienglishcentre/ydyo.png" 
@@ -107,7 +117,17 @@ const Layout: React.FC<LayoutProps> = ({ currentMode, onModeChange, children }) 
             </button>
           </div>
 
-          <nav className="p-6 space-y-2 flex-1 pt-12 overflow-y-auto">
+          <div className="p-6 pb-2">
+             <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 md:hidden">
+                <img src={user.picture} alt={user.name} className="w-10 h-10 rounded-full border border-white shadow-sm" />
+                <div className="flex flex-col">
+                    <span className="text-sm font-bold text-slate-800">{user.name}</span>
+                    <span className="text-xs text-slate-500">Student</span>
+                </div>
+             </div>
+          </div>
+
+          <nav className="p-6 space-y-2 flex-1 overflow-y-auto">
             <div className="px-4 mb-4">
               <span className="text-[12px] font-black text-slate-400 uppercase tracking-[0.2em]">Dashboard</span>
             </div>
@@ -192,6 +212,16 @@ const Layout: React.FC<LayoutProps> = ({ currentMode, onModeChange, children }) 
                 {item.label}
               </button>
             ))}
+            
+            <div className="px-4 mt-6">
+                <button 
+                    onClick={() => window.location.reload()}
+                    className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-sm font-bold text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                >
+                    <LogOut size={20} />
+                    Sign Out
+                </button>
+            </div>
           </nav>
 
           <div className="p-6 border-t border-slate-100 bg-slate-50/50">

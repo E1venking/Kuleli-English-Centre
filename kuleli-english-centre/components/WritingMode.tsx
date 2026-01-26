@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { AppMode, WritingFeedback } from '../types';
+import { AppMode, WritingFeedback, UserProfile } from '../types';
 import { generateWritingTopic, processWritingInput } from '../services/geminiService';
-import { PenTool, Clock, Send, RefreshCw, AlertCircle, CheckCircle2, ListChecks, MessageSquareText, FileEdit } from 'lucide-react';
+import { submitExamResult } from '../services/submissionService';
+import { PenTool, Clock, Send, RefreshCw, AlertCircle, CheckCircle2, ListChecks, MessageSquareText, FileEdit, CheckCircle, Download } from 'lucide-react';
 import Timer from './Timer';
 
 interface WritingModeProps {
   mode: AppMode;
+  user: UserProfile;
 }
 
-const WritingMode: React.FC<WritingModeProps> = ({ mode }) => {
+const WritingMode: React.FC<WritingModeProps> = ({ mode, user }) => {
   const isExam = mode === AppMode.WRITING_EXAM;
   const [topic, setTopic] = useState<string>("");
   const [text, setText] = useState<string>("");
@@ -17,6 +19,10 @@ const WritingMode: React.FC<WritingModeProps> = ({ mode }) => {
   const [timeLeft, setTimeLeft] = useState(1200); // 20 minutes
   const [hasStarted, setHasStarted] = useState(!isExam);
   const [isLoadingTopic, setIsLoadingTopic] = useState(isExam);
+  
+  // Submission State
+  const [isSendingScore, setIsSendingScore] = useState(false);
+  const [isScoreSubmitted, setIsScoreSubmitted] = useState(false);
 
   useEffect(() => {
     if (isExam) {
@@ -28,6 +34,7 @@ const WritingMode: React.FC<WritingModeProps> = ({ mode }) => {
     // Reset state when mode changes
     setText("");
     setFeedback(null);
+    setIsScoreSubmitted(false);
   }, [mode]);
 
   useEffect(() => {
@@ -68,6 +75,68 @@ const WritingMode: React.FC<WritingModeProps> = ({ mode }) => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+  
+  const handleSubmitScoreToTeacher = async () => {
+    if (!feedback) return;
+    setIsSendingScore(true);
+    
+    const breakdown = {
+        task: feedback.taskAchievement.score,
+        fluency: feedback.fluencyCoherence.score,
+        grammar: feedback.grammarMechanics.score,
+        vocab: feedback.vocabulary.score
+    };
+
+    const success = await submitExamResult({
+      user,
+      type: 'WRITING_EXAM',
+      score: feedback.totalScore,
+      maxScore: 10,
+      breakdown: JSON.stringify(breakdown),
+      feedbackSummary: feedback.overallFeedback
+    });
+
+    setIsSendingScore(false);
+    if (success) setIsScoreSubmitted(true);
+    else alert("Could not submit score. Please check your internet connection.");
+  };
+
+  const handleDownloadReport = () => {
+    if (!feedback) return;
+    const date = new Date().toLocaleString();
+    const content = `
+KULELI ENGLISH CENTRE - WRITING EXAM REPORT
+--------------------------------------------
+Date: ${date}
+Cadet: ${user.name}
+Topic: ${topic}
+
+TOTAL SCORE: ${Math.min(10, feedback.totalScore)} / 10
+
+BREAKDOWN:
+- Task Achievement: ${feedback.taskAchievement.score}/3
+- Fluency & Coherence: ${feedback.fluencyCoherence.score}/2
+- Grammar & Mechanics: ${feedback.grammarMechanics.score}/3
+- Vocabulary: ${feedback.vocabulary.score}/2
+
+INSTRUCTOR SUMMARY:
+${feedback.overallFeedback}
+
+CORRECTIONS:
+${feedback.corrections.map((c) => `- ${c}`).join('\n')}
+
+STUDENT TEXT:
+${text}
+    `.trim();
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Writing_Exam_${user.name.replace(/\s+/g, '_')}_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const wordCount = text.trim().split(/\s+/).filter(w => w.length > 0).length;
@@ -166,10 +235,36 @@ const WritingMode: React.FC<WritingModeProps> = ({ mode }) => {
         {/* Feedback Area */}
         {feedback && (
           <div className="flex-[2] space-y-6">
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden relative">
                <div className="bg-red-600 p-6 text-white text-center">
                   <div className="text-4xl font-black">{Math.min(10, feedback.totalScore)}<span className="text-xl opacity-60">/10</span></div>
                   <div className="text-[10px] font-bold uppercase tracking-widest mt-1 opacity-80">Final Grade</div>
+                  
+                   <div className="absolute top-4 right-4 flex gap-2">
+                        <button 
+                            onClick={handleDownloadReport}
+                            className="bg-white/20 hover:bg-white/30 text-white px-2 py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-widest shadow-lg transition-all flex items-center gap-2"
+                            title="Download Record"
+                        >
+                        <Download size={12} />
+                        </button>
+                        
+                        {/* Submit Button */}
+                        {isExam && (!isScoreSubmitted ? (
+                        <button 
+                            onClick={handleSubmitScoreToTeacher}
+                            disabled={isSendingScore}
+                            className="bg-white text-red-700 px-3 py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-widest shadow-lg hover:bg-red-50 transition-all flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {isSendingScore ? <RefreshCw className="animate-spin" size={12}/> : <Send size={12} />}
+                            {isSendingScore ? "Sending..." : "Submit"}
+                        </button>
+                        ) : (
+                        <div className="bg-green-500 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-widest shadow-lg flex items-center gap-2">
+                            <CheckCircle size={12} /> Submitted
+                        </div>
+                        ))}
+                   </div>
                </div>
                
                <div className="p-6 space-y-6">
@@ -203,7 +298,7 @@ const WritingMode: React.FC<WritingModeProps> = ({ mode }) => {
             )}
             
             <button 
-              onClick={() => { setFeedback(null); setText(""); if (isExam) { setHasStarted(false); fetchTopic(); } }}
+              onClick={() => { setFeedback(null); setText(""); if (isExam) { setHasStarted(false); fetchTopic(); setIsScoreSubmitted(false); } }}
               className="w-full py-4 bg-slate-800 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-slate-900 transition-colors"
             >
               <RefreshCw size={18} /> {isExam ? "Try New Exam" : "Start New Practice"}

@@ -25,6 +25,12 @@ export enum ExamStatus {
   COMPLETED = 'COMPLETED'
 }
 
+export interface UserProfile {
+  name: string;
+  email: string;
+  picture: string;
+}
+
 export interface Mistake {
   mistake: string;
   correction: string;

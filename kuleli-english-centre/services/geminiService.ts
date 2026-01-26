@@ -5,17 +5,28 @@ import { FeedbackData, WritingFeedback, ExamPart } from "../types";
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 let isAudioUnlocked = false;
 
-// Dynamic API Key Management
-let dynamicApiKey: string | undefined = process.env.API_KEY;
+// Auth Management
+// OPTION B: Manual API Key
+interface AuthConfig {
+  type: 'apiKey';
+  value: string;
+}
 
-export const setApiKey = (key: string) => {
-  dynamicApiKey = key;
+// Default to undefined. 
+let authConfig: AuthConfig | undefined = undefined;
+
+export const setAuth = (config: AuthConfig) => {
+  authConfig = config;
 };
 
-const getApiKey = (): string => {
-  // Use the dynamic key if set, otherwise fallback to the environment variable.
-  // If neither exists, the GoogleGenAI client will likely throw an error, which we catch.
-  return dynamicApiKey || process.env.API_KEY || "";
+// Helper to create the AI Client with correct auth strategy
+const getAiClient = (): GoogleGenAI => {
+  if (!authConfig) {
+     throw new Error("Authentication missing. Please enter your API Key.");
+  }
+
+  // Use the Manual API Key provided by the user
+  return new GoogleGenAI({ apiKey: authConfig.value });
 };
 
 // Constants for Model Fallback
@@ -130,7 +141,7 @@ const addWavHeader = (pcmData: Uint8Array, sampleRate: number = 24000, numChanne
 export const synthesizeSpeech = async (text: string): Promise<string | 'FALLBACK_HANDLED' | null> => {
   try {
     return await fetchWithRetry(async () => {
-      const ai = new GoogleGenAI({ apiKey: getApiKey() });
+      const ai = getAiClient();
       const cleanText = text.replace(/\*/g, '');
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
@@ -155,8 +166,7 @@ export const synthesizeSpeech = async (text: string): Promise<string | 'FALLBACK
 
 export const generateExamTopic = async (part: number): Promise<string> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    // Updated Part 2 Prompt for Single Image Description
+    const ai = getAiClient();
     const prompt = part === 2 
         ? "Generate a detailed scene description for a photograph used in an English speaking exam (A2-B1 level). Examples: 'A student studying in a library with headphones', 'A group of friends camping in the woods', 'A chef cooking in a modern kitchen', 'People playing golf on a sunny day', 'A waiter serving customers in a busy restaurant'. Return ONLY the description text." 
         : "Generate a single interesting discussion question for an English exam at A2-B1+ level. Use clear, simple language and avoid overly academic or abstract topics. Examples: 'Do you prefer living in a city or a village? Why?', 'What are the advantages of learning a second language?', 'Is it important to travel to other countries?'.";
@@ -183,7 +193,7 @@ export const generateExamTopic = async (part: number): Promise<string> => {
 
 export const generateWritingTopic = async (): Promise<string> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = getAiClient();
     const prompt = `Generate a CEFR A2-B1 level English writing exam topic. 
     Examples: 'Write about a memorable day', 'Write about an important person'. 
     Format MUST include a title and 4-5 bullet points of what to include. 
@@ -211,7 +221,7 @@ export const generateWritingTopic = async (): Promise<string> => {
 
 export const generateExamImage = async (topic: string): Promise<string | null> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image', // No fallback for image generation available in free tier mostly
       contents: { parts: [{ text: `High quality professional photograph of: ${topic}` }] },
@@ -224,12 +234,11 @@ export const generateExamImage = async (topic: string): Promise<string | null> =
 };
 
 const generateFreeSpeakingReply = async (audioBase64: string, history: any[]): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const ai = getAiClient();
   const config = {
       systemInstruction: "You are a friendly English tutor. Reply naturally to the student's input. Keep your response brief (max 3 sentences) and encouraging. Do NOT use stars or markdown.",
       responseMimeType: "text/plain"
   };
-  // Updated mimeType to audio/webm to match browser recorder
   const contents = [...history, { role: 'user', parts: [{ inlineData: { mimeType: "audio/webm", data: audioBase64 } }, { text: "Reply conversationally." }] }];
 
   try {
@@ -262,20 +271,16 @@ export const processStudentInput = async (
   onReply?: (text: string) => void
 ): Promise<{ reply: string, feedback: FeedbackData, moveNext?: boolean }> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = getAiClient();
     const audioBase64 = await blobToBase64(audioBlob);
     
-    // FREE MODE OPTIMIZATION: PARALLEL REQUESTS
     if (mode === 'FREE') {
-      // 1. Fast Reply Generation
       const replyPromise = generateFreeSpeakingReply(audioBase64, history).then(text => {
         if (onReply) onReply(text);
         return text;
       });
 
-      // 2. Parallel Analysis (JSON)
       const analysisPromise = (async () => {
-          // Updated mimeType to audio/webm to match browser recorder
           const contents = [...history, { role: 'user', parts: [{ inlineData: { mimeType: "audio/webm", data: audioBase64 } }, { text: "Analyze." }] }];
           const config = { 
             systemInstruction: "English tutor. Analyze student speech. Return JSON. Do NOT use stars. Focus on grammar, vocabulary, and fluency.", 
@@ -330,7 +335,6 @@ export const processStudentInput = async (
           pronunciationScore: cleanedJson.pronunciationScore || 0,
           grammarScore: cleanedJson.grammarScore || 0,
           fluencyCoherenceScore: cleanedJson.fluencyCoherenceScore || 0,
-          // Map vocabularyScore for consistency
           vocabularyScore: cleanedJson.vocabularyScore || 0,
           fluencyScore: cleanedJson.fluencyScore || 0,
           idiomScore: cleanedJson.idiomScore || 0,
@@ -342,38 +346,20 @@ export const processStudentInput = async (
       };
     }
 
-    // EXAM MODE: STANDARD SINGLE REQUEST (Optimized for brevity)
-    // Determine max score based on part
     const isPart2 = currentPart === ExamPart.PICTURE;
     const maxScore = isPart2 ? 8 : 6;
     
     const systemInstruction = `IELTS examiner: ${examContext}. 
-      
       EXAMINER PROTOCOLS:
       1. LIMIT: You are allowed a MAXIMUM of 2 follow-up questions. You have currently used ${turnCount} turns.
-         - If turnCount >= 2, you MUST set 'examMoveToNext: true' and conclude the part.
-      2. STEERING & RELEVANCE: 
-         - When asking follow-up questions, BRIDGE the student's specific input back to the main topic.
-      3. COMPLETION THRESHOLD: 
-         - If the student is fluent and has addressed the task, set 'examMoveToNext: true'.
-         - If the student has answered 3 times (Main + 2 Follow-ups), you MUST set 'examMoveToNext: true'.
-      4. STRICT GRADING (Level A2-B1+): 
-         - Be a STRICT examiner. Deduct scores if the student provides minimal, vague, or disorganized information.
-      5. RESPONSE BREVITY:
-         - Keep 'replyText' VERY BRIEF (max 20 words) to ensure the exam flows quickly.
+         - If turnCount >= 2, you MUST set 'examMoveToNext: true'.
+      2. STEERING: Bridge input to main topic.
+      3. THRESHOLD: If fluent, set 'examMoveToNext: true'.
+      4. STRICT GRADING (A2-B1+).
       
-      GRADING RUBRIC for Part ${currentPart} (Max ${maxScore} points per category):
-      1. Task Achievement (Max ${maxScore}): Unity, organization, clarity, relevance, detail.
-      2. Fluency (Max ${maxScore}): Speed, hesitation, pauses, natural flow.
-      3. Pronunciation (Max ${maxScore}): Clarity, intelligibility.
-      4. Vocabulary (Max ${maxScore}): Range, precision, appropriateness.
-      5. Grammar (Max ${maxScore}): Accuracy, sentence structure, self-correction.
-      
-      MISTAKE TYPES: Categorize errors as "grammar", "vocabulary", or "pronunciation".
-      
-      IMPORTANT: NEVER use stars (*) or bold markdown in any field.`;
+      RUBRIC (Max ${maxScore}): Task, Fluency, Pronunciation, Vocabulary, Grammar.
+      NO STARS or BOLD.`;
 
-    // Updated mimeType to audio/webm to match browser recorder
     const contents = [...history, { role: 'user', parts: [{ inlineData: { mimeType: "audio/webm", data: audioBase64 } }, { text: "Analyze." }] }];
     const config = { 
         systemInstruction, 
@@ -436,7 +422,6 @@ export const processStudentInput = async (
 
     const cleanedJson = clean(json);
     
-    // Invoke onReply for consistency if provided (even though it's late for Exam mode)
     if (onReply && cleanedJson.replyText && !cleanedJson.examMoveToNext) {
         onReply(cleanedJson.replyText);
     }
@@ -461,15 +446,13 @@ export const processStudentInput = async (
 
 export const processWritingInput = async (text: string, topic?: string): Promise<WritingFeedback> => {
   return fetchWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = getAiClient();
     const systemInstruction = `You are an English writing evaluator for A2-B1 levels. 
     Analyze the text based on these EXACT criteria:
-    
     1. Task Achievement (Min: 0.5, Max: 3 pts)
     2. Fluency and Coherence (Min: 0.5, Max: 2 pts)
     3. Grammar and Mechanics (Min: 0.5, Max: 3 pts)
     4. Vocabulary (Min: 0.5, Max: 2 pts)
-
     Total Max: 10 pts.
     IMPORTANT: DO NOT USE STARS (*) OR BOLD MARKDOWN IN ANY FIELD.`;
 
@@ -482,34 +465,22 @@ export const processWritingInput = async (text: string, topic?: string): Promise
           properties: {
             taskAchievement: { 
               type: Type.OBJECT, 
-              properties: { 
-                score: { type: Type.NUMBER }, 
-                explanation: { type: Type.STRING } 
-              },
+              properties: { score: { type: Type.NUMBER }, explanation: { type: Type.STRING } },
               required: ["score", "explanation"]
             },
             fluencyCoherence: { 
               type: Type.OBJECT, 
-              properties: { 
-                score: { type: Type.NUMBER }, 
-                explanation: { type: Type.STRING } 
-              },
+              properties: { score: { type: Type.NUMBER }, explanation: { type: Type.STRING } },
               required: ["score", "explanation"]
             },
             grammarMechanics: { 
               type: Type.OBJECT, 
-              properties: { 
-                score: { type: Type.NUMBER }, 
-                explanation: { type: Type.STRING } 
-              },
+              properties: { score: { type: Type.NUMBER }, explanation: { type: Type.STRING } },
               required: ["score", "explanation"]
             },
             vocabulary: { 
               type: Type.OBJECT, 
-              properties: { 
-                score: { type: Type.NUMBER }, 
-                explanation: { type: Type.STRING } 
-              },
+              properties: { score: { type: Type.NUMBER }, explanation: { type: Type.STRING } },
               required: ["score", "explanation"]
             },
             totalScore: { type: Type.NUMBER },
@@ -533,7 +504,6 @@ export const processWritingInput = async (text: string, topic?: string): Promise
     }
     
     const data = JSON.parse(response.text || "{}");
-    
     const clean = (obj: any): any => {
       if (typeof obj === 'string') return obj.replace(/\*/g, '');
       if (Array.isArray(obj)) return obj.map(clean);
@@ -544,7 +514,6 @@ export const processWritingInput = async (text: string, topic?: string): Promise
       }
       return obj;
     };
-    
     return clean(data);
   });
 };
