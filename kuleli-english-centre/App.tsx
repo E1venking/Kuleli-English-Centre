@@ -11,52 +11,38 @@ const App: React.FC = () => {
   const [currentMode, setCurrentMode] = useState<AppMode>(AppMode.LANDING);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
-  const [userEmail, setUserEmail] = useState<string>("");
 
   useEffect(() => {
-    const checkKey = async () => {
-      const aiStudio = (window as any).aistudio;
-      if (aiStudio) {
-        try {
-          const hasKey = await aiStudio.hasSelectedApiKey();
-          setHasApiKey(hasKey);
-        } catch (e) {
-          console.error("Error checking API key:", e);
-        }
-      } else {
-        // Fallback for development environments without the extension
-        if (process.env.API_KEY) {
-          setHasApiKey(true);
-        }
-      }
-      setIsChecking(false);
-    };
-    checkKey();
+    // We intentionally skip checking hasSelectedApiKey() on mount.
+    // This forces the "Sign in" screen to appear for every new session,
+    // ensuring the user explicitly connects their account as requested.
+    setIsChecking(false);
   }, []);
 
-  const handleConnect = async (email: string) => {
-    setUserEmail(email);
+  const handleConnect = async () => {
     const aiStudio = (window as any).aistudio;
     if (aiStudio) {
       try {
+        // Triggers the secure Google system dialog for account selection/login.
         await aiStudio.openSelectKey();
-        // Assume success to avoid race conditions as per documentation
+        // As per documentation, we assume success if no error is thrown.
         setHasApiKey(true);
       } catch (e) {
         console.error("Key selection failed", e);
-        // Reset state if needed
         const msg = String(e);
+        // Handle user cancellation specifically
         if (msg.includes("Requested entity was not found")) {
             setHasApiKey(false);
-            alert("Connection cancelled or failed. Please try again.");
+            alert("Sign in was cancelled. Please try again to access the application.");
         }
       }
     } else {
-      // In dev/fallback mode without aistudio, just proceed if we have an env key or simulate
+      // Fallback for local development where window.aistudio might not exist.
+      // Checks if a key was manually provided in .env
       if (process.env.API_KEY) {
         setHasApiKey(true);
       } else {
-        alert("Google AI Studio environment not detected. Cannot select account.");
+        alert("Google AI Studio environment not detected. Unable to sign in.");
       }
     }
   };
@@ -64,7 +50,7 @@ const App: React.FC = () => {
   if (isChecking) {
     return (
       <div className="h-screen w-screen bg-slate-50 flex items-center justify-center">
-        <div className="h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="h-8 w-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
